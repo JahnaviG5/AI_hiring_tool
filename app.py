@@ -7,22 +7,23 @@ from pdf2image import convert_from_path
 import pytesseract
 import pdfplumber
 
-# Load environment variables
+# ✅ Set Streamlit page config FIRST
+st.set_page_config(page_title="Resume Analyzer", layout="wide")
+
+# ✅ Load environment variables (optional for local)
 load_dotenv()
+
+# ✅ Get API key from environment (especially important for Hugging Face)
 api_key = os.getenv("GOOGLE_API_KEY")
 
-# Check API key
 if not api_key:
-    st.error("GOOGLE_API_KEY not found. Please check your .env file.")
-else:
-    genai.configure(api_key=api_key)
+    st.error("🚨 GOOGLE_API_KEY is not set. Please configure it in Hugging Face → Settings → Secrets.")
+    st.stop()
 
-# Page setup
-st.set_page_config(page_title="Resume Analyzer", layout="wide")
-st.title("📄 AI Resume Analyzer")
-st.write("Analyze your resume and match it with job descriptions using Google Gemini AI.")
+# ✅ Configure Google Gemini API
+genai.configure(api_key=api_key)
 
-# Function to extract text from PDF
+# Extract text from PDF
 def extract_text_from_pdf(pdf_path):
     text = ""
     try:
@@ -34,72 +35,82 @@ def extract_text_from_pdf(pdf_path):
         if text.strip():
             return text.strip()
     except Exception as e:
-        st.warning(f"Direct text extraction failed: {e}")
+        print(f"Direct text extraction failed: {e}")
 
-    # Fallback to OCR
-    st.info("Using OCR as fallback for image-based PDF...")
+    # OCR fallback
+    print("Falling back to OCR.")
     try:
         images = convert_from_path(pdf_path)
         for image in images:
             text += pytesseract.image_to_string(image) + "\n"
     except Exception as e:
-        st.error(f"OCR failed: {e}")
+        print(f"OCR failed: {e}")
     return text.strip()
 
-# Function to get response from Gemini AI
+# Generate Gemini response
 def analyze_resume(resume_text, job_description=None):
+    if not resume_text:
+        return "❌ Resume text could not be extracted."
+
     model = genai.GenerativeModel("gemini-1.5-flash")
 
     prompt = f"""
-You are an experienced HR with technical expertise in roles like Data Science, DevOps, AI, etc.
-Please review this resume and share:
-- If the profile fits a role
-- Strengths and weaknesses
-- Existing skills
-- Suggested improvements and courses
+    You are an experienced HR with technical expertise. Analyze the following resume:
+    
+    Resume:
+    {resume_text}
+    
+    Provide:
+    - Summary
+    - Skills present
+    - Skills to improve
+    - Suggested courses
+    - Strengths and weaknesses
+    """
 
-Resume:
-{resume_text}
-"""
     if job_description:
-        prompt += f"\n\nCompare it to this Job Description:\n{job_description}"
+        prompt += f"""
+        Also compare the resume to this job description:
+        {job_description}
+        """
 
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"❌ Gemini API Error: {e}"
 
-# Upload section
+# --- Streamlit UI ---
+
+st.title("🤖 AI Resume Analyzer")
+st.write("Upload your resume and optionally a job description. We'll evaluate your profile using Google Gemini AI.")
+
 col1, col2 = st.columns(2)
 with col1:
-    uploaded_file = st.file_uploader("📤 Upload your resume (PDF)", type=["pdf"])
+    uploaded_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
 with col2:
-    job_description = st.text_area("💼 Job Description", placeholder="Paste job description (optional)...")
+    job_description = st.text_area("Job Description (Optional)", placeholder="Paste job description here...")
 
-# Handle file
 if uploaded_file:
     st.success("✅ Resume uploaded successfully!")
     with open("uploaded_resume.pdf", "wb") as f:
         f.write(uploaded_file.getbuffer())
+
     resume_text = extract_text_from_pdf("uploaded_resume.pdf")
-    st.write("📄 **Extracted Resume Preview:**")
-    st.text(resume_text[:1000])  # show first 1000 characters
 
     if st.button("🔍 Analyze Resume"):
-        with st.spinner("Analyzing with Google Gemini AI..."):
-            try:
-                result = analyze_resume(resume_text, job_description)
-                st.success("✅ Analysis complete!")
-                st.markdown(result)
-            except Exception as e:
-                st.error(f"❌ Failed to analyze resume: {e}")
+        with st.spinner("Analyzing..."):
+            result = analyze_resume(resume_text, job_description)
+            st.success("✅ Analysis complete!")
+            st.write(result)
 else:
-    st.warning("📎 Please upload a resume PDF to begin.")
+    st.warning("⚠️ Please upload a resume in PDF format.")
 
 # Footer
 st.markdown("---")
-st.markdown(
-    """<p style='text-align: center;'>Powered by <b>Streamlit</b> & <b>Google Gemini AI</b> | Developed by 
-    <a href="https://www.linkedin.com/in/dutta-sujoy/" target="_blank" style="text-decoration: none;">Sujoy Dutta</a></p>""",
-    unsafe_allow_html=True
-)
-
-st.write("hii ladd")
+st.markdown("""
+<p style='text-align: center;'>
+    Powered by <b>Streamlit</b> + <b>Google Gemini AI</b><br>
+    Developed by <a href='https://www.linkedin.com/in/dutta-sujoy/' target='_blank'><b>Sujoy Dutta</b></a>
+</p>
+""", unsafe_allow_html=True)
